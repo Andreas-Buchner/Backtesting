@@ -17,11 +17,11 @@ class Backtester:
     def simulate(self):
         for rating in self.rating_list:
             if os.path.exists("data/"+rating.rating_name):
-                data = pd.read_csv("data/"+rating.rating_name, header=[0, 1])
+                data = pd.read_csv("data/"+rating.rating_name, header=[0, 1], index_col=0)
             else:
                 symbols = rating.rating_df['Symbol'].to_list()[:200]  # only look at the top ratings --> portfolio will be smaller anyways
                 data = yf.download(symbols, start=rating.start_date.strftime("%Y-%m-%d"), end=rating.end_date.strftime("%Y-%m-%d"),
                                    actions=True)[['Adj Close', 'Dividends']]
-                data.to_csv("data/top250/"+rating.rating_name, index=False)
+                data.to_csv("data/"+rating.rating_name)
 
 

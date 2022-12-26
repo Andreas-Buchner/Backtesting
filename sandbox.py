@@ -1,30 +1,48 @@
-import tiingo
-import yfinance as yf
 import pandas as pd
-
-data = pd.read_csv("data/Q1_2021.csv", header=[0, 1])
-adj_cl = data['Adj Close'].columns
-div = data['Dividends'].columns
-not_in_div = [x for x in adj_cl if x not in div]
-print(not_in_div)
-
-to_add = pd.read_csv("data/CTXS.csv")[['adjClose', 'divCash']]
-print(to_add)
+import numpy as np
 
 
+file = "data/Q3_2022.csv"
 
+data = pd.read_csv(file, header=[0, 1], index_col=0)
+dates = data.index
 
+to_fill = [x[1] for x in data.columns[data.isna().any()].tolist()]
+print(to_fill)
 
-#df = yf.download("SNPMF", start="2021-01-01", actions=True)[['Adj Close', 'Dividends']]
-#print(df)
-#df.to_csv("data/SNP.csv")
+for n in to_fill:
+    print(f"Processing {n}")
+    to_add = pd.read_csv(f"data/{n}.csv", index_col=0)[['adjClose', 'divCash']]
 
-#key = '9d31b307dc45132a9d8003135c3c57cff8a2ef7e'
-#t_config = {'session': True, 'api_key': key}
-#api = tiingo.TiingoClient(t_config)
+    if n in ["PTR", "SNP", "BAM"]:
+        start = "2022-07-01"
+        end = "2022-09-30"
+    else:
+        start = dates[0] + "+00:00"
+        try:
+            end = to_add.index[to_add.index.tolist().index(dates[-1] + "+00:00")]
+        except ValueError:
+            end = None
 
-# ERROR: PTR & SNP wrong date?
-#symbol = "META"
-#df = api.get_dataframe(symbol, frequency='daily', startDate="2021-01-01")
-#print(df)
-#df.to_csv("data/"+symbol+".csv")
+    dividends = to_add['divCash'][start:end].values.tolist()
+    if len(dividends) < len(data):
+        dividends = dividends + np.zeros(len(data) - len(dividends)).tolist()
+    if len(dividends) > len(data):
+        dividends = dividends[:len(data)]
+
+    adjClose = to_add['adjClose'][start:end].values.tolist()
+    if len(adjClose) < len(data):
+        last_price = adjClose[-1]
+        adjClose = adjClose + np.repeat(last_price, len(data) - len(adjClose)).tolist()
+    if len(adjClose) > len(data):
+        adjClose = adjClose[:len(data)]
+
+    data['Dividends', n] = dividends
+    data['Adj Close', n] = adjClose
+
+to_fill = [x[1] for x in data.columns[data.isna().any()].tolist()]
+print(to_fill)
+#print(data['Dividends', 'CTXS'])
+#print(data['Adj Close', 'MXIM'])
+
+data.to_csv(file)
