@@ -2,6 +2,12 @@ import pandas as pd
 import numpy as np
 
 
+df = pd.read_csv("data/Q1_2021.csv", header=[0, 1], index_col=0)
+for index, row in df.iterrows():
+    print(row['Adj Close']['ABB'])
+    break
+
+"""
 file = "data/Q3_2022.csv"
 
 data = pd.read_csv(file, header=[0, 1], index_col=0)
@@ -46,3 +52,4 @@ print(to_fill)
 #print(data['Adj Close', 'MXIM'])
 
 data.to_csv(file)
+"""
