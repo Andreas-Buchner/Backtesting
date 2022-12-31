@@ -6,6 +6,7 @@ import os
 def main():
     bt = backtester.Backtester()
     bt.simulate()
+    bt.plot_results()
     """
     for rating in os.listdir("ratings"):
         symbols = pd.read_csv("ratings/" + rating)['Symbol'][:200]

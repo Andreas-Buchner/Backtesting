@@ -16,7 +16,13 @@ class TaxPool:
         self.balance = 0.0
         self.paid_balance = 0.0
 
-    def add_tax(self, profit):
+    def add_dividend_tax(self, profit):
+        tax = profit * config.taxes
+        self.balance += tax
+        self.paid_balance += tax
+        return tax
+
+    def add_buy_tax(self, profit):
         tax = profit * config.taxes
         self.balance += tax
 
@@ -54,8 +60,13 @@ def simulate_fee(transaction_size):
 
 
 def get_symbols_for_new_portfolio(current_portfolio, new_symbols):
-    # TODO do sth with current_portfolio --> threshold to kick out for example
-    return new_symbols[:100]
+    new_symbols = new_symbols[:config.kickout_threshold]
+    res = [symbol for symbol in current_portfolio.keys() if symbol in new_symbols]
+    not_in_res = [symbol for symbol in new_symbols if symbol not in res]
+    while len(res) < 100:
+        res.append(not_in_res[0])
+        not_in_res = not_in_res[1:]
+    return res
 
 
 def build_new_portfolio(current_portfolio, new_symbols, prices, cash):
@@ -67,37 +78,54 @@ def build_new_portfolio(current_portfolio, new_symbols, prices, cash):
     pos_size = total_available_assets/len(new_symbols)
     if config.portfolio_strat == "floor":
         for symbol in new_symbols:
-            new_portfolio[symbol] = min(math.floor(prices[symbol]/pos_size), 1)
+            new_portfolio[symbol] = max(math.floor(pos_size/prices[symbol]), 1)
+    elif config.portfolio_strat == "floor_no_adj":
+        for symbol in new_symbols:
+            if symbol in current_portfolio:
+                new_portfolio[symbol] = current_portfolio[symbol].qty
+            else:
+                new_portfolio[symbol] = max(math.floor(pos_size / prices[symbol]), 1)
 
     return new_portfolio
 
 
-def do_rebalancing(current_portfolio, new_portfolio, prices, cash, taxpool: TaxPool, total_fees):
+def do_rebalancing(current_portfolio, new_portfolio, prices, cash, taxpool: TaxPool):
     """
     :param current_portfolio: being altered
     :param new_portfolio: contains symbol + qty, only used for rebalancing/taking orders
     :param prices: prices of stock
     :param cash: free cash that is available --> to return
     :param taxpool: being altered
-    :param total_fees: total fees that have been paid --> to return
-    :return: cash, total_fees
+    :return: cash, fees
     """
-    # first sell
-    for symbol, position in current_portfolio.items():
+    num_buys = 0
+    num_sells = 0
+    num_adj = 0
+    buy_vol = 0.0
+    sell_vol = 0.0
+    adj_vol = 0.0
+    total_fees = 0.0
+
+    for symbol, position in current_portfolio.copy().items():
+        # first sell
         if symbol not in new_portfolio:
+            num_sells += 1
             transaction_size = prices[symbol] * current_portfolio[symbol].qty
+            sell_vol += transaction_size
             fee = simulate_fee(transaction_size)
             total_fees += fee
-            cash += transaction_size - fee
+            cash += (transaction_size - fee)
             profit = (prices[symbol] - current_portfolio[symbol].price) * current_portfolio[symbol].qty
-            taxpool.add_tax(profit)
+            taxpool.add_buy_tax(profit)
             current_portfolio.pop(symbol)
 
     # buy and adjust position size respectively
     for symbol, qty in new_portfolio.items():
         if symbol not in current_portfolio:
             # buy new
+            num_buys += 1
             transaction_size = prices[symbol] * new_portfolio[symbol]
+            buy_vol += transaction_size
             fee = simulate_fee(transaction_size)
             total_fees += fee
             cash -= new_portfolio[symbol]*prices[symbol]
@@ -107,8 +135,10 @@ def do_rebalancing(current_portfolio, new_portfolio, prices, cash, taxpool: TaxP
             # alter number of shares being held
             if current_portfolio[symbol].qty < new_portfolio[symbol]:
                 # buy more
+                num_adj += 1
                 to_buy = new_portfolio[symbol] - current_portfolio[symbol].qty
                 transaction_size = to_buy * prices[symbol]
+                adj_vol += transaction_size
                 fee = simulate_fee(transaction_size)
                 total_fees += fee
                 cash -= transaction_size
@@ -122,14 +152,16 @@ def do_rebalancing(current_portfolio, new_portfolio, prices, cash, taxpool: TaxP
                              )/new_portfolio[symbol]
                 current_portfolio[symbol] = Position(new_portfolio[symbol], new_price)
             elif current_portfolio[symbol].qty > new_portfolio[symbol]:
+                num_adj += 1
                 to_sell = current_portfolio[symbol].qty - new_portfolio[symbol]
                 transaction_size = to_sell * prices[symbol]
+                adj_vol += transaction_size
                 fee = simulate_fee(transaction_size)
                 total_fees += fee
                 cash += transaction_size - fee
                 profit = (prices[symbol] - current_portfolio[symbol].price) * to_sell
-                taxpool.add_tax(profit)
+                taxpool.add_buy_tax(profit)
                 current_portfolio[symbol] = Position(new_portfolio[symbol], current_portfolio[symbol].price)
 
     cash -= taxpool.process_rebalancing()
-    return cash, total_fees
+    return cash, total_fees, num_buys, num_sells, num_adj, buy_vol, sell_vol, adj_vol

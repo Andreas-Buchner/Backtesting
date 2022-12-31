@@ -1,11 +1,20 @@
 import pandas as pd
 import numpy as np
+import yfinance as yf
+import matplotlib.pyplot as plt
 
 
-df = pd.read_csv("data/Q1_2021.csv", header=[0, 1], index_col=0)
-for index, row in df.iterrows():
-    print(row['Adj Close']['ABB'])
-    break
+df = yf.download("SPY", start="2021-02-11", end="2022-09-30")
+
+fig, ax = plt.subplots(nrows=1, ncols=1)
+ax.plot(df['Adj Close'])
+fig.autofmt_xdate()
+plt.grid(True)
+plt.xlabel("Time")
+plt.ylabel("Worth")
+plt.show()
+
+print(df['Adj Close'][-1]/df['Adj Close'][0])
 
 """
 file = "data/Q3_2022.csv"
