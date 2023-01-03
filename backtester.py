@@ -49,6 +49,8 @@ class Backtester:
             data = pd.read_csv("data/"+rating.rating_name, header=[0, 1], index_col=0)
 
             for date, price_and_dividend in data.iterrows():
+                assert self.cash >= 0
+                assert taxpool.paid_balance >= 0
                 prices = price_and_dividend['Adj Close']
                 dividend = price_and_dividend['Dividends']
                 if date == data.index[0]:

@@ -22,7 +22,7 @@ class TaxPool:
         self.paid_balance += tax
         return tax
 
-    def add_buy_tax(self, profit):
+    def add_sell_tax(self, profit):
         tax = profit * config.taxes
         self.balance += tax
 
@@ -80,11 +80,90 @@ def build_new_portfolio(current_portfolio, new_symbols, prices, cash):
         for symbol in new_symbols:
             new_portfolio[symbol] = max(math.floor(pos_size/prices[symbol]), 1)
     elif config.portfolio_strat == "floor_no_adj":
+        # TODO fix
+        not_adjusted = 0.0
         for symbol in new_symbols:
+            qty = max(math.floor(pos_size / prices[symbol]), 1)
             if symbol in current_portfolio:
+                not_adjusted += (qty - current_portfolio[symbol].qty) * prices[symbol]
                 new_portfolio[symbol] = current_portfolio[symbol].qty
             else:
                 new_portfolio[symbol] = max(math.floor(pos_size / prices[symbol]), 1)
+
+        while cash < not_adjusted:
+            for symbol in new_symbols:
+                if symbol not in current_portfolio:
+                    not_adjusted -= prices[symbol]
+                    new_portfolio[symbol] -= 1
+    elif config.portfolio_strat == "no_adj_opt":
+        # TODO fix
+        dead_cash = 0.0
+        for symbol in current_portfolio:
+            qty = max(math.floor(pos_size / prices[symbol]), 1)
+            if symbol in new_symbols:
+                dead_cash += (qty - current_portfolio[symbol].qty) * prices[symbol]
+
+        for symbol in new_symbols:
+            qty = max(math.floor(pos_size / prices[symbol]), 1)
+            if symbol in current_portfolio:
+                new_portfolio[symbol] = current_portfolio[symbol].qty
+            else:
+                new_portfolio[symbol] = qty
+
+        improved = False
+        while dead_cash > 0 and improved:
+            improved = False
+            for symbol in [s for s in new_symbols if s not in current_portfolio]:
+                if 0 < dead_cash < prices[symbol]:
+                    improved = True
+                    dead_cash -= prices[symbol]
+                    new_portfolio[symbol] += 1
+    elif config.portfolio_strat == "optimal":
+        for symbol in [x for x in current_portfolio if x not in new_symbols]:
+            cash += (current_portfolio[symbol].qty*prices[symbol])
+            cash -= simulate_fee(current_portfolio[symbol].qty*prices[symbol])
+            profit = (prices[symbol]-current_portfolio[symbol].price) * current_portfolio[symbol].qty
+            if profit > 0:
+                cash -= profit * config.taxes
+
+        new_buys = []
+        for symbol in new_symbols:
+            qty = max(math.floor(pos_size / prices[symbol]), 1)
+            if symbol in current_portfolio:
+                if (1+config.adj_threshold)*current_portfolio[symbol].qty < qty or qty < (1-config.adj_threshold)*current_portfolio[symbol].qty:
+                    new_portfolio[symbol] = qty
+                    diff = abs(current_portfolio[symbol].qty - qty)
+                    sell = current_portfolio[symbol].qty > qty
+                    trans_size = diff * prices[symbol]
+                    cash -= simulate_fee(trans_size)
+                    if sell:
+                        cash += trans_size
+                        profit = (prices[symbol] - current_portfolio[symbol].price) * diff
+                        if profit > 0:
+                            cash -= profit * config.taxes
+                    else:
+                        cash -= trans_size
+                else:  # do nothing
+                    new_portfolio[symbol] = current_portfolio[symbol].qty
+            else:
+                new_buys.append(symbol)
+                cash -= simulate_fee(qty*prices[symbol])
+                cash -= qty*prices[symbol]
+                new_portfolio[symbol] = qty
+
+        # due to not adjusting cash could be below zero
+        improved = True
+        safety_threshold = 0
+        while cash < safety_threshold and improved:
+            improved = False
+            for symbol in new_buys:
+                if prices[symbol] == 1:
+                    continue
+                improved = True
+                cash += prices[symbol]
+                new_portfolio[symbol] -= 1
+                if cash >= safety_threshold:
+                    break
 
     return new_portfolio
 
@@ -116,9 +195,8 @@ def do_rebalancing(current_portfolio, new_portfolio, prices, cash, taxpool: TaxP
             total_fees += fee
             cash += (transaction_size - fee)
             profit = (prices[symbol] - current_portfolio[symbol].price) * current_portfolio[symbol].qty
-            taxpool.add_buy_tax(profit)
+            taxpool.add_sell_tax(profit)
             current_portfolio.pop(symbol)
-
     # buy and adjust position size respectively
     for symbol, qty in new_portfolio.items():
         if symbol not in current_portfolio:
@@ -160,7 +238,7 @@ def do_rebalancing(current_portfolio, new_portfolio, prices, cash, taxpool: TaxP
                 total_fees += fee
                 cash += transaction_size - fee
                 profit = (prices[symbol] - current_portfolio[symbol].price) * to_sell
-                taxpool.add_buy_tax(profit)
+                taxpool.add_sell_tax(profit)
                 current_portfolio[symbol] = Position(new_portfolio[symbol], current_portfolio[symbol].price)
 
     cash -= taxpool.process_rebalancing()
